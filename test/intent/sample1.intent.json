@@ -1,7 +1,7 @@
 {
-  "utterance": "Thank you",
-  "intent_type": "ThankYouIntent",
+  "utterance": "Habit automation",
+  "intent_type": "FakeStartIntent",
   "intent": {
-    "ThankYouKeyword": "thank you"
+    "FakeStartKeyword": "habit automation"
   }
 }
