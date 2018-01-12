@@ -2,6 +2,7 @@
   "utterance": "Habit automation",
   "intent_type": "FakeStartIntent",
   "intent": {
-    "FakeStartKeyword": "habit automation"
+    "FakeStartKeyword": "habit automation",
+    "Command":"open atom"
   }
 }
