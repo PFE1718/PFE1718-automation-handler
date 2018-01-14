@@ -1,0 +1,7 @@
+{
+  "utterance": "Habit automation",
+  "intent_type": "DirectStartIntent",
+  "intent": {
+    "DirectStartKeyword": "habit automation"
+  }
+}
