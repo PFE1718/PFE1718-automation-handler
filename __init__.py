@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Import statements
 from os.path import dirname
 import json
 
@@ -29,23 +28,37 @@ __author__ = 'Nuttymoon'
 # statements will show up in the command line when running Mycroft.
 LOGGER = getLogger(__name__)
 
-# The logic of each skill is contained within its own class, which inherits
-# base methods from the MycroftSkill class with the syntax you can see below:
-# "class ____Skill(MycroftSkill)"
 
+class HabitsManager(object):
+    '''
+    This class manages the reading and writting in the file habits.json
 
-class HabitsManager():
+    Attributes:
+        habits_file_path (str): path to the file habits.json
+        habits (json): the json datastore corresponding to habits.json
+    '''
+
     def __init__(self):
         self.habits_file_path = "/opt/mycroft/habits/habits.json"
         self.habits = json.load(open(self.habits_file_path))
 
     def get_all_habits(self):
+        '''Return all the existing habits of the user'''
         return self.habits
 
     def get_habit_by_id(self, habit_id):
+        '''Return one particular habit of the user'''
         return self.habits[habit_id]
 
     def automate_habit(self, habit_id, triggers, auto):
+        '''
+        Register the automation of a habit in the habits.json
+
+        Args:
+            habit_id (str): the id of the habit to automate
+            triggers (str[]): the intents tp register as triggers of the habit
+            auto (int): 1 for full automation, 2 for habit offer when triggered
+        '''
         self.habits[habit_id]["user_choice"] = True
         self.habits[habit_id]["automatized"] = auto
         if self.habits[habit_id]["trigger_type"] == "time":
@@ -55,13 +68,33 @@ class HabitsManager():
         with open(self.habits_file_path, 'w') as habits_file:
             json.dump(self.habits, habits_file)
 
+    def not_automate_habit(self, habit_id):
+        '''
+        Register the user choice of not automatizing a habit
+
+        Args:
+            habit_id (str): the id of the habit to not automate
+        '''
+        self.habits[habit_id]["user_choice"] = True
+        self.habits[habit_id]["automatized"] = 0
+        with open(self.habits_file_path, 'w') as habits_file:
+            json.dump(self.habits, habits_file)
+
 
 class AutomationHandlerSkill(MycroftSkill):
+    '''
+    This class implements the automation handler skill
+
+    Args:
+        habit (str): the current habit being handled
+        habit_id (str): the id of the habit being handled
+        auto (bool): True if the user choose to automate the habit
+        manager (HabitsManager): used to interact with habits.json
+    '''
 
     def __init__(self):
         super(AutomationHandlerSkill, self).__init__(
             name="AutomationHandlerSkill")
-        self.command = ""
         self.habit = None
         self.habit_id = None
         self.auto = False
@@ -73,6 +106,8 @@ class AutomationHandlerSkill(MycroftSkill):
         self.register_intent(habit_detected,
                              self.handle_habit_detected)
 
+# region Mycroft first dialog
+
     def handle_habit_detected(self, message):
         LOGGER.debug("Loading habit number " + message.data.get("HabitNumber"))
         self.set_context("AutomationChoiceContext")
@@ -81,10 +116,10 @@ class AutomationHandlerSkill(MycroftSkill):
 
         dialog = "I have noticed that you often use "
         if(self.habit["trigger_type"] == "skill"):
-            dialog += self.generate_skill_trigger_dialog(self.habit["skills"])
+            dialog += self.generate_skill_trigger_dialog(self.habit["intents"])
         else:
             dialog += self.generate_time_trigger_dialog(
-                self.habit["time"], self.habit["skills"])
+                self.habit["time"], self.habit["intents"])
 
         self.speak(dialog, expect_response=True)
 
@@ -135,7 +170,7 @@ class AutomationHandlerSkill(MycroftSkill):
     def handle_no_trigger_choice_intent(self, message):
         if self.auto:
             self.manager.automate_habit(
-                self.habit_id, range(0, len(self.habit["skills"])), 1)
+                self.habit_id, range(0, len(self.habit["intents"])), 1)
             self.habit_automatized()
         else:
             self.habit_not_automatized()
@@ -178,26 +213,26 @@ class AutomationHandlerSkill(MycroftSkill):
                     self.habit_id, [int(skill_id) - 1], 2)
                 self.habit_offer(int(skill_id))
 
-    def generate_skill_trigger_dialog(self, skills):
+    def generate_skill_trigger_dialog(self, intents):
         dial = ""
-        for i in range(0, len(skills) - 1):
-            dial += "the command {}, ".format(skills[i]["last_utterance"])
+        for i in range(0, len(intents) - 1):
+            dial += "the command {}, ".format(intents[i]["last_utterance"])
         dial += "and the command {} together. ".format(
-            skills[len(skills) - 1]["last_utterance"])
+            intents[len(intents) - 1]["last_utterance"])
         dial += ("Do you want me to automate your habit of launching these "
-                 "{} commands?".format(len(skills)))
+                 "{} commands?".format(len(intents)))
         return dial
 
-    def generate_time_trigger_dialog(self, time, skills):
+    def generate_time_trigger_dialog(self, time, intents):
         dial = ""
-        if len(skills) > 1:
-            for i in range(0, len(skills) - 1):
-                dial += "the command {}, ".format(skills[i]["last_utterance"])
+        if len(intents) > 1:
+            for i in range(0, len(intents) - 1):
+                dial += "the command {}, ".format(intents[i]["last_utterance"])
             dial += "and the command {} together ".format(
-                skills[len(skills) - 1]["last_utterance"])
-            com = "these {} commands".format(len(skills))
+                intents[len(intents) - 1]["last_utterance"])
+            com = "these {} commands".format(len(intents))
         else:
-            dial += "the command {} ".format(skills[0]["last_utterance"])
+            dial += "the command {} ".format(intents[0]["last_utterance"])
             com = "this command"
         at = "at {}".format(time)
         dial += ("Do you want me to automate your habit of launching {} "
@@ -207,8 +242,8 @@ class AutomationHandlerSkill(MycroftSkill):
     def ask_trigger_command(self):
         dialog = "The habit trigger can be "
         num = ""
-        for i in range(0, len(self.habit["skills"])):
-            dialog += "{}, {}. ".format(i + 1, self.habit["skills"]
+        for i in range(0, len(self.habit["intents"])):
+            dialog += "{}, {}. ".format(i + 1, self.habit["intents"]
                                         [i]["last_utterance"])
             num += "{}, ".format(i + 1)
         dialog += "Please answer {}or cancel.".format(num)
@@ -229,21 +264,16 @@ class AutomationHandlerSkill(MycroftSkill):
             dial = "Every day at {}, ".format(self.habit["time"])
         else:
             dial = "Every time you will launch the command {}, ".format(
-                self.habit["skills"][skill_id]["last_utterance"])
+                self.habit["intents"][skill_id]["last_utterance"])
         dial += ("I will ask you if you want to launch the habit. You can "
                  "change your habit automation preferences with the command "
                  "'habit automation'.")
         self.speak(dial)
 
-    # The "stop" method defines what Mycroft does when told to stop during
-    # the skill's execution. In this case, since the skill's functionality
-    # is extremely simple, the method just contains the keyword "pass", which
-    # does nothing.
+# endregion
+
     def stop(self):
         pass
-
-# The "create_skill()" method is used to create an instance of the skill.
-# Note that it's outside the class itself.
 
 
 def create_skill():
