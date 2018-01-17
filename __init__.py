@@ -40,7 +40,9 @@ class HabitsManager(object):
 
     def __init__(self):
         self.habits_file_path = "/opt/mycroft/habits/habits.json"
+        self.triggers_file_path = "/opt/mycroft/habits/triggers.json"
         self.habits = json.load(open(self.habits_file_path))
+        self.triggers = json.load(open(self.triggers_file_path))
 
     def get_all_habits(self):
         '''Return all the existing habits of the user'''
@@ -80,6 +82,10 @@ class HabitsManager(object):
         with open(self.habits_file_path, 'w') as habits_file:
             json.dump(self.habits, habits_file)
 
+    def get_trigger_by_id(self, trigger_id):
+        '''Return one particular habit trigger'''
+        return self.triggers[trigger_id]
+
 
 class AutomationHandlerSkill(MycroftSkill):
     '''
@@ -102,16 +108,19 @@ class AutomationHandlerSkill(MycroftSkill):
 
     def initialize(self):
         habit_detected = IntentBuilder("HabitDetectedIntent").require(
-            "HabitDetectedKeyword").require("HabitNumber").build()
-        self.register_intent(habit_detected,
-                             self.handle_habit_detected)
+            "HabitDetectedKeyword").require("Number").build()
+        self.register_intent(habit_detected, self.handle_habit_detected)
+
+        trigger_detected = IntentBuilder("TriggerDetectedIntent").require(
+            "TriggerDetectedKeyword").require("Number").build()
+        self.register_intent(trigger_detected, self.handle_trigger_detected)
 
 # region Mycroft first dialog
 
     def handle_habit_detected(self, message):
-        LOGGER.debug("Loading habit number " + message.data.get("HabitNumber"))
+        LOGGER.debug("Loading habit number " + message.data.get("Number"))
         self.set_context("AutomationChoiceContext")
-        self.habit_id = message.data.get("HabitNumber")
+        self.habit_id = message.data.get("Number")
         self.habit = self.manager.get_habit_by_id(self.habit_id)
 
         dialog = "I have noticed that you often use "
@@ -272,6 +281,56 @@ class AutomationHandlerSkill(MycroftSkill):
 
 # endregion
 
+# region Habit Automation
+
+    def handle_trigger_detected(self, message):
+        LOGGER.debug("Loading trigger number " + message.data.get("Number"))
+        self.trigger = self.manager.get_trigger_by_id(
+            message.data.get("Number"))
+        self.habit = self.manager.get_habit_by_id(self.trigger["habit_id"])
+        LOGGER.debug("Habit number " + self.trigger["habit_id"])
+
+        if self.habit["automatized"] == 1:
+            self.exec_automation()
+        elif self.habit["automatized"] == 2:
+            self.set_context("OfferContext")
+            self.offer_habit_exec()
+
+    @intent_handler(IntentBuilder("CompleteAutomationIntent")
+                    .require("YesKeyword")
+                    .require("OfferContext").build())
+    @removes_context("OfferContext")
+    def handle_complete_automation(self, message):
+        self.exec_automation()
+
+    @intent_handler(IntentBuilder("NotCompleteAutomationIntent")
+                    .require("NoKeyword")
+                    .require("OfferContext").build())
+    @removes_context("OfferContext")
+    def handle_not_complete_automation(self, message):
+        pass
+
+    def offer_habit_exec(self):
+        if(self.habit["trigger_type"] == "skill"):
+            dialog = "Do you also want to run"
+            n_commands = len(self.habit["intents"]) - 1
+            for intent in self.habit["intents"]:
+                if intent["name"] != self.trigger["intent"] or \
+                        intent["parameters"] != self.trigger["parameters"]:
+                    n_commands -= 1
+                    if not n_commands:
+                        dialog += " and"
+                    dialog += " the command {}".format(
+                        intent["last_utterance"])
+        else:
+            pass
+
+        self.speak(dialog + "?", expect_response=True)
+
+    def exec_automation(self):
+        pass
+
+# endregion
     def stop(self):
         pass
 
