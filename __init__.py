@@ -21,6 +21,7 @@ from mycroft.skills.core import MycroftSkill
 from mycroft.skills.core import intent_handler
 from mycroft.skills.context import adds_context, removes_context
 from mycroft.util.log import getLogger
+from mycroft.messagebus.message import Message
 
 __author__ = 'Nuttymoon'
 
@@ -51,6 +52,31 @@ class HabitsManager(object):
     def get_habit_by_id(self, habit_id):
         '''Return one particular habit of the user'''
         return self.habits[habit_id]
+
+    def register_habit(self, trigger_type, intents, time=None):
+        '''Register a new habit in habits.json'''
+        if trigger_type == "skill":
+            self.habits += [
+                {
+                    "intents": intents,
+                    "trigger_type": trigger_type,
+                    "automatized": 0,
+                    "user_choice": False,
+                    "triggers": []
+                }
+            ]
+        else:
+            self.habits += [
+                {
+                    "intents": intents,
+                    "trigger_type": trigger_type,
+                    "automatized": 0,
+                    "user_choice": False,
+                    "time": time
+                }
+            ]
+        with open(self.habits_file_path, 'w') as habits_file:
+            json.dump(self.habits, habits_file)
 
     def automate_habit(self, habit_id, triggers, auto):
         '''
@@ -91,9 +117,11 @@ class AutomationHandlerSkill(MycroftSkill):
     '''
     This class implements the automation handler skill
 
-    Args:
-        habit (str): the current habit being handled
+    Attributes:
+        habit (datastore): the current habit being handled
         habit_id (str): the id of the habit being handled
+        trigger (datastore): the current trigger being handled
+        to_execute (array): the intents to execute in the automation
         auto (bool): True if the user choose to automate the habit
         manager (HabitsManager): used to interact with habits.json
     '''
@@ -103,8 +131,10 @@ class AutomationHandlerSkill(MycroftSkill):
             name="AutomationHandlerSkill")
         self.habit = None
         self.habit_id = None
+        self.trigger = None
+        self.to_execute = []
         self.auto = False
-        self.manager = HabitsManager()
+        self.manager = None
 
     def initialize(self):
         habit_detected = IntentBuilder("HabitDetectedIntent").require(
@@ -120,7 +150,8 @@ class AutomationHandlerSkill(MycroftSkill):
     def handle_habit_detected(self, message):
         LOGGER.debug("Loading habit number " + message.data.get("Number"))
         self.set_context("AutomationChoiceContext")
-        self.habit_id = message.data.get("Number")
+        self.manager = HabitsManager()
+        self.habit_id = int(message.data.get("Number"))
         self.habit = self.manager.get_habit_by_id(self.habit_id)
 
         dialog = "I have noticed that you often use "
@@ -182,6 +213,7 @@ class AutomationHandlerSkill(MycroftSkill):
                 self.habit_id, range(0, len(self.habit["intents"])), 1)
             self.habit_automatized()
         else:
+            self.manager.not_automate_habit(self.habit_id)
             self.habit_not_automatized()
 
     @intent_handler(IntentBuilder("OfferChoiceIntent")
@@ -202,6 +234,7 @@ class AutomationHandlerSkill(MycroftSkill):
                     .require("OfferChoiceContext").build())
     @removes_context("OfferChoiceContext")
     def handle_no_offer_choice_intent(self, message):
+        self.manager.not_automate_habit(self.habit_id)
         self.habit_not_automatized()
 
     @intent_handler(IntentBuilder("TriggerCommandIntent")
@@ -211,6 +244,7 @@ class AutomationHandlerSkill(MycroftSkill):
     def handle_trigger_command_intent(self, message):
         skill_id = message.data.get("IndexKeyword")
         if skill_id == "cancel":
+            self.manager.not_automate_habit(self.habit_id)
             self.habit_not_automatized()
         else:
             if self.auto:
@@ -284,13 +318,19 @@ class AutomationHandlerSkill(MycroftSkill):
 # region Habit Automation
 
     def handle_trigger_detected(self, message):
+        self.manager = HabitsManager()
         LOGGER.debug("Loading trigger number " + message.data.get("Number"))
-        self.trigger = self.manager.get_trigger_by_id(
-            message.data.get("Number"))
-        self.habit = self.manager.get_habit_by_id(self.trigger["habit_id"])
+        self.trigger = self.manager.get_trigger_by_id(int(
+            message.data.get("Number")))
+        self.habit = self.manager.get_habit_by_id(
+            int(self.trigger["habit_id"]))
         LOGGER.debug("Habit number " + self.trigger["habit_id"])
 
         if self.habit["automatized"] == 1:
+            for intent in self.habit["intents"]:
+                if intent["name"] != self.trigger["intent"] or \
+                        intent["parameters"] != self.trigger["parameters"]:
+                    self.to_execute.append(intent)
             self.exec_automation()
         elif self.habit["automatized"] == 2:
             self.set_context("OfferContext")
@@ -311,7 +351,7 @@ class AutomationHandlerSkill(MycroftSkill):
         pass
 
     def offer_habit_exec(self):
-        if(self.habit["trigger_type"] == "skill"):
+        if self.habit["trigger_type"] == "skill":
             dialog = "Do you also want to run"
             n_commands = len(self.habit["intents"]) - 1
             for intent in self.habit["intents"]:
@@ -322,15 +362,48 @@ class AutomationHandlerSkill(MycroftSkill):
                         dialog += " and"
                     dialog += " the command {}".format(
                         intent["last_utterance"])
+                    self.to_execute.append(intent)
         else:
             pass
 
         self.speak(dialog + "?", expect_response=True)
 
     def exec_automation(self):
-        pass
+        LOGGER.debug("Launching habit...")
+        for intent in self.to_execute:
+            self.emitter.emit(
+                Message("recognizer_loop:utterance",
+                        {"utterances": [intent["last_utterance"]],
+                         "lang": 'en-us'}))
+        self.to_execute = []
 
 # endregion
+
+# region Habit registration test intent
+
+    @intent_handler(IntentBuilder("RegisterHabitIntent")
+                    .require("RegisterHabitKeyword"))
+    def handle_register_habit(self, message):
+        self.manager = HabitsManager()
+        self.manager.register_habit("skill", [
+            {
+                "parameters": {
+                    "Application": "atom"
+                },
+                "name": "-4359987462241748114:LaunchDesktopApplicationIntent",
+                "last_utterance": "open atom"
+            },
+            {
+                "parameters": {
+                    "Application": "firefox"
+                },
+                "name": "-4359987462241748114:LaunchDesktopApplicationIntent",
+                "last_utterance": "open firefox"
+            }
+        ])
+
+# endregion
+
     def stop(self):
         pass
 
