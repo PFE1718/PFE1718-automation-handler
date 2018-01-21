@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dateutil import parser
 import json
+from dateutil import parser
 
 from adapt.intent import IntentBuilder
 from mycroft.skills.core import MycroftSkill
@@ -81,23 +81,33 @@ class HabitsManager(object):
         with open(self.habits_file_path, 'w') as habits_file:
             json.dump(self.habits, habits_file)
 
-    def automate_habit(self, habit_id, triggers, auto):
+    def automate_habit(self, habit_id, auto, new_triggers=None):
         """
         Register the automation of a habit in the habits.json
 
         Args:
             habit_id (str): the id of the habit to automate
-            triggers (str[]): the intents tp register as triggers of the habit
+            triggers (str[]): the intents to register as triggers of the habit
             auto (int): 1 for full automation, 2 for habit offer when triggered
         """
-        self.habits[habit_id]["user_choice"] = True
-        self.habits[habit_id]["automatized"] = auto
-        if self.habits[habit_id]["trigger_type"] == "time":
-            self.habits[habit_id]["time"] = triggers
-        else:
-            self.habits[habit_id]["triggers"] = triggers
+        habit = self.habits[habit_id]
+        habit["user_choice"] = True
+        habit["automatized"] = auto
+        if habit["trigger_type"] == "skill":
+            for known_trig in self.triggers:
+                for i in new_triggers:
+                    if habit["intents"][int(i)]["name"] \
+                        == known_trig["intent"] and \
+                        habit["intents"][int(i)]["parameters"] \
+                            == known_trig["parameters"]:
+                        return False
+            habit["triggers"] = new_triggers
+
+        self.habits[habit_id] = habit
         with open(self.habits_file_path, 'w') as habits_file:
             json.dump(self.habits, habits_file)
+
+        return True
 
     def not_automate_habit(self, habit_id):
         """
@@ -153,12 +163,13 @@ class AutomationHandlerSkill(MycroftSkill):
     def handle_habit_detected(self, message):
         LOGGER.debug("Loading habit number " + message.data.get("Number"))
         self.set_context("AutomationChoiceContext")
+        LOGGER.debug(self.settings.get("multiple_triggers"))
         self.manager.load_files()
         self.habit_id = int(message.data.get("Number"))
         self.habit = self.manager.get_habit_by_id(self.habit_id)
 
         dialog = "I have noticed that you often use "
-        if(self.habit["trigger_type"] == "skill"):
+        if self.habit["trigger_type"] == "skill":
             dialog += self.generate_skill_trigger_dialog(self.habit["intents"])
         else:
             dialog += self.generate_time_trigger_dialog(
@@ -175,19 +186,23 @@ class AutomationHandlerSkill(MycroftSkill):
     @intent_handler(IntentBuilder("AutomationChoiceIntent")
                     .require("YesKeyword")
                     .require("AutomationChoiceContext").build())
-    @adds_context("TriggerChoiceContext")
-    @removes_context("AutomationChoiceContext")
     def handle_automation_choice_intent(self, message):
         self.auto = True
+        self.remove_context("AutomationChoiceContext")
         if self.habit["trigger_type"] == "skill":
-            self.speak("The habit automation can be triggered either by "
-                       "only one of the previous commands or by any of them. "
-                       "Do you want to pick one "
-                       "particular command as the trigger?",
-                       expect_response=True)
+            if self.settings.get("multiple_triggers"):
+                self.set_context("TriggerChoiceContext")
+                self.speak("The habit automation can be triggered either by "
+                           "only one of the previous commands or by any of "
+                           "them. Do you want to pick one "
+                           "particular command as the trigger?",
+                           expect_response=True)
+            else:
+                self.set_context("TriggerCommandContext")
+                self.ask_trigger_command()
+
         else:
-            self.remove_context("TriggerChoiceContext")
-            self.automate_time_habit()
+            self.manager.automate_habit(self.habit_id, 1 if self.auto else 2)
             self.habit_automatized()
 
     @intent_handler(IntentBuilder("NoAutomationIntent")
@@ -219,7 +234,7 @@ class AutomationHandlerSkill(MycroftSkill):
     def handle_no_trigger_choice_intent(self, message):
         if self.auto:
             self.manager.automate_habit(
-                self.habit_id, range(0, len(self.habit["intents"])), 1)
+                self.habit_id, range(0, 1, len(self.habit["intents"])))
             self.habit_automatized()
         else:
             self.manager.not_automate_habit(self.habit_id)
@@ -228,14 +243,13 @@ class AutomationHandlerSkill(MycroftSkill):
     @intent_handler(IntentBuilder("OfferChoiceIntent")
                     .require("YesKeyword")
                     .require("OfferChoiceContext").build())
-    @adds_context("TriggerCommandContext")
-    @removes_context("OfferChoiceContext")
     def handle_offer_choice_intent(self, message):
+        self.remove_context("OfferChoiceContext")
         if self.habit["trigger_type"] == "skill":
+            self.set_context("TriggerCommandContext")
             self.ask_trigger_command()
         else:
-            self.remove_context("TriggerCommandContext")
-            self.automate_time_habit()
+            self.manager.automate_habit(self.habit_id, 1 if self.auto else 2)
             self.habit_offer()
 
     @intent_handler(IntentBuilder("NoOfferChoiceIntent")
@@ -249,21 +263,25 @@ class AutomationHandlerSkill(MycroftSkill):
     @intent_handler(IntentBuilder("TriggerCommandIntent")
                     .require("IndexKeyword")
                     .require("TriggerCommandContext").build())
-    @removes_context("TriggerCommandContext")
     def handle_trigger_command_intent(self, message):
-        skill_id = message.data.get("IndexKeyword")
-        if skill_id == "cancel":
+        intent_id = message.data.get("IndexKeyword")
+        if intent_id == "cancel":
+            self.remove_context("TriggerCommandContext")
             self.manager.not_automate_habit(self.habit_id)
             self.habit_not_automatized()
         else:
-            if self.auto:
-                self.manager.automate_habit(
-                    self.habit_id, [int(skill_id) - 1], 1)
-                self.habit_automatized()
+            intent_id = int(intent_id) - 1
+            if self.manager.automate_habit(
+                    self.habit_id, 1 if self.auto else 2, [intent_id]):
+                self.remove_context("TriggerCommandContext")
+                if self.auto:
+                    self.habit_automatized()
+                else:
+                    self.habit_offer(intent_id)
             else:
-                self.manager.automate_habit(
-                    self.habit_id, [int(skill_id) - 1], 2)
-                self.habit_offer(int(skill_id))
+                self.speak("This command is already a trigger for another "
+                           "habit. Please choose an other one.")
+                self.ask_trigger_command()
 
     def generate_skill_trigger_dialog(self, intents):
         dial = ""
@@ -311,20 +329,17 @@ class AutomationHandlerSkill(MycroftSkill):
                    "habit automation preferences with the command "
                    "'habit automation'.")
 
-    def habit_offer(self, skill_id=None):
+    def habit_offer(self, intent_id=None):
         if self.habit["trigger_type"] == "time":
             dial = "Every day at {}, ".format(self.habit["time"])
         else:
             dial = "Every time you will launch the command {}, ".format(
-                self.habit["intents"][skill_id]["last_utterance"])
+                self.habit["intents"][intent_id]["last_utterance"])
         dial += ("I will ask you if you want to launch the habit. You can "
                  "change your habit automation preferences with the command "
                  "'habit automation'.")
         self.speak(dial)
 
-    def automate_time_habit(self):
-        self.manager.automate_habit(self.habit_id, self.habit["time"],
-                                    1 if self.auto else 2)
 
 # endregion
 
