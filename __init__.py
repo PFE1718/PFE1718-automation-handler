@@ -93,19 +93,48 @@ class HabitsManager(object):
         habit = self.habits[habit_id]
         habit["user_choice"] = True
         habit["automatized"] = auto
+
         if habit["trigger_type"] == "skill":
-            for known_trig in self.triggers:
+            if not self.triggers:
                 for i in new_triggers:
-                    if habit["intents"][int(i)]["name"] \
-                        == known_trig["intent"] and \
-                        habit["intents"][int(i)]["parameters"] \
-                            == known_trig["parameters"]:
-                        return False
+                    self.triggers += [
+                        {
+                            "intent": habit["intents"][i]["name"],
+                            "parameters": habit["intents"][i]["parameters"],
+                            "habit_id": habit_id
+                        }
+                    ]
+            else:
+                if not self.check_triggers(habit_id, habit, new_triggers):
+                    return False
+
             habit["triggers"] = new_triggers
+            with open(self.triggers_file_path, 'w') as triggers_file:
+                json.dump(self.triggers, triggers_file)
 
         self.habits[habit_id] = habit
         with open(self.habits_file_path, 'w') as habits_file:
             json.dump(self.habits, habits_file)
+
+        return True
+
+    def check_triggers(self, habit_id, habit, new_triggers):
+        to_add = []
+        for known_trig in self.triggers:
+            for i in new_triggers:
+                LOGGER.info("Testing trigger" + str(habit["intents"][int(i)]))
+                if habit["intents"][i]["name"] == known_trig["intent"] and \
+                    habit["intents"][i]["parameters"] \
+                        == known_trig["parameters"]:
+                    return False
+                to_add += [
+                    {
+                        "intent": habit["intents"][i]["name"],
+                        "parameters": habit["intents"][i]["parameters"],
+                        "habit_id": habit_id
+                    }
+                ]
+        self.triggers += to_add
 
         return True
 
@@ -230,12 +259,18 @@ class AutomationHandlerSkill(MycroftSkill):
     @intent_handler(IntentBuilder("NoTriggerChoiceIntent")
                     .require("NoKeyword")
                     .require("TriggerChoiceContext").build())
-    @removes_context("TriggerChoiceContext")
     def handle_no_trigger_choice_intent(self, message):
+        self.remove_context("TriggerChoiceContext")
         if self.auto:
-            self.manager.automate_habit(
-                self.habit_id, range(0, 1, len(self.habit["intents"])))
-            self.habit_automatized()
+            if self.manager.automate_habit(
+                    self.habit_id, 1,
+                    range(0, len(self.habit["intents"]))):
+                self.habit_automatized()
+            else:
+                self.set_context("TriggerCommandContext")
+                self.speak("One of these command is already a trigger for "
+                           "another habit. Please select one command.")
+                self.ask_trigger_command()
         else:
             self.manager.not_automate_habit(self.habit_id)
             self.habit_not_automatized()
