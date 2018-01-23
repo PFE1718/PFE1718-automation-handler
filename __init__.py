@@ -191,12 +191,15 @@ class AutomationHandlerSkill(MycroftSkill):
 
     def handle_habit_detected(self, message):
         LOGGER.debug("Loading habit number " + message.data.get("Number"))
-        self.set_context("AutomationChoiceContext")
         LOGGER.debug(self.settings.get("multiple_triggers"))
         self.manager.load_files()
         self.habit_id = int(message.data.get("Number"))
         self.habit = self.manager.get_habit_by_id(self.habit_id)
 
+        if self.habit["user_choice"]:
+            return
+
+        self.set_context("AutomationChoiceContext")
         dialog = "I have noticed that you often use "
         if self.habit["trigger_type"] == "skill":
             dialog += self.generate_skill_trigger_dialog(self.habit["intents"])
@@ -356,13 +359,13 @@ class AutomationHandlerSkill(MycroftSkill):
 
     def habit_automatized(self):
         self.speak("The habit has been successfully automatized. You can "
-                   "change your habit automation preferences with the "
-                   "command 'habit automation'.")
+                   "change your habit automation preferences by modifying the "
+                   "file /opt/mycroft/habits/habits dot json.")
 
     def habit_not_automatized(self):
         self.speak("The habit will not be automatized. You can change your "
-                   "habit automation preferences with the command "
-                   "'habit automation'.")
+                   "habit automation preferences by modifying the file "
+                   "/opt/mycroft/habits/habits dot json.")
 
     def habit_offer(self, intent_id=None):
         if self.habit["trigger_type"] == "time":
@@ -371,8 +374,8 @@ class AutomationHandlerSkill(MycroftSkill):
             dial = "Every time you will launch the command {}, ".format(
                 self.habit["intents"][intent_id]["last_utterance"])
         dial += ("I will ask you if you want to launch the habit. You can "
-                 "change your habit automation preferences with the command "
-                 "'habit automation'.")
+                 "change your habit automation preferences by modifying the "
+                 "file /opt/mycroft/habits/habits dot json.")
         self.speak(dial)
 
 
