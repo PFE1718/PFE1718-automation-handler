@@ -56,7 +56,7 @@ class HabitsManager(object):
         """Return one particular habit of the user"""
         return self.habits[habit_id]
 
-    def register_habit(self, trigger_type, intents, time=None):
+    def register_habit(self, trigger_type, intents, time=None, days=None):
         """Register a new habit in habits.json"""
         if trigger_type == "skill":
             self.habits += [
@@ -75,7 +75,8 @@ class HabitsManager(object):
                     "trigger_type": trigger_type,
                     "automatized": 0,
                     "user_choice": False,
-                    "time": time
+                    "time": time,
+                    "days": days
                 }
             ]
         with open(self.habits_file_path, 'w') as habits_file:
@@ -495,7 +496,7 @@ class AutomationHandlerSkill(MycroftSkill):
                 "name": "-4359987462241748114:LaunchDesktopApplicationIntent",
                 "last_utterance": "open firefox"
             }
-        ])
+        ], "prout", ["monday"])
 
 # endregion
 
