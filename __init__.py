@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import json
+import os
 from dateutil import parser
 
 from adapt.intent import IntentBuilder
@@ -22,12 +23,29 @@ from mycroft.skills.core import intent_handler
 from mycroft.skills.context import adds_context, removes_context
 from mycroft.util.log import getLogger
 from mycroft.messagebus.message import Message
+from mycroft.skills.settings import SkillSettings
 
 __author__ = 'Nuttymoon'
 
 # Logger: used for debug lines, like "LOGGER.debug(xyz)". These
 # statements will show up in the command line when running Mycroft.
 LOGGER = getLogger(__name__)
+
+WEEKDAYS = [
+    "mondays",
+    "tuesdays",
+    "wednesdays",
+    "thursdays",
+    "fridays",
+    "saturdays",
+    "sundays"
+]
+
+SKILLS_FOLDERS = {
+    "/opt/mycroft/skills/mycroft-skill-listener": "skill listener",
+    "/opt/mycroft/skills/mycroft-habit-miner-skill": "habit miner",
+    "/opt/mycroft/skills/mycroft-automation-handler": "automation handler"
+}
 
 
 class HabitsManager(object):
@@ -176,6 +194,7 @@ class AutomationHandlerSkill(MycroftSkill):
         self.habit_id = None
         self.trigger = None
         self.to_execute = []
+        self.to_install = []
         self.auto = False
         self.manager = HabitsManager()
 
@@ -191,13 +210,18 @@ class AutomationHandlerSkill(MycroftSkill):
 # region Mycroft first dialog
 
     def handle_habit_detected(self, message):
-        LOGGER.debug("Loading habit number " + message.data.get("Number"))
-        LOGGER.debug(self.settings.get("multiple_triggers"))
+        if not self.check_skills_intallation():
+            return
+
+        LOGGER.info("Loading habit number " + message.data.get("Number"))
+        LOGGER.info("multiple_triggers = " + str(
+            self.settings.get("multiple_triggers")))
         self.manager.load_files()
         self.habit_id = int(message.data.get("Number"))
         self.habit = self.manager.get_habit_by_id(self.habit_id)
 
         if self.habit["user_choice"]:
+            LOGGER.info("User choice already made for this habit")
             return
 
         self.set_context("AutomationChoiceContext")
@@ -206,7 +230,7 @@ class AutomationHandlerSkill(MycroftSkill):
             dialog += self.generate_skill_trigger_dialog(self.habit["intents"])
         else:
             dialog += self.generate_time_trigger_dialog(
-                self.habit["time"], self.habit["intents"])
+                self.habit["time"], self.habit["days"], self.habit["intents"])
             event_name = "habit_automation_nb_{}".format(self.habit_id)
             self.schedule_repeating_event(self.handle_scheduled_habit,
                                           parser.parse(self.habit["time"]),
@@ -237,6 +261,7 @@ class AutomationHandlerSkill(MycroftSkill):
         else:
             self.manager.automate_habit(self.habit_id, 1 if self.auto else 2)
             self.habit_automatized()
+            # self.generate_settingsmeta()
 
     @intent_handler(IntentBuilder("NoAutomationIntent")
                     .require("NoKeyword")
@@ -270,6 +295,7 @@ class AutomationHandlerSkill(MycroftSkill):
                     self.habit_id, 1,
                     range(0, len(self.habit["intents"]))):
                 self.habit_automatized()
+                # self.generate_settingsmeta()
             else:
                 self.set_context("TriggerCommandContext")
                 self.speak("One of these command is already a trigger for "
@@ -278,6 +304,7 @@ class AutomationHandlerSkill(MycroftSkill):
         else:
             self.manager.not_automate_habit(self.habit_id)
             self.habit_not_automatized()
+            # self.generate_settingsmeta()
 
     @intent_handler(IntentBuilder("OfferChoiceIntent")
                     .require("YesKeyword")
@@ -290,6 +317,7 @@ class AutomationHandlerSkill(MycroftSkill):
         else:
             self.manager.automate_habit(self.habit_id, 1 if self.auto else 2)
             self.habit_offer()
+            # self.generate_settingsmeta()
 
     @intent_handler(IntentBuilder("NoOfferChoiceIntent")
                     .require("NoKeyword")
@@ -298,6 +326,7 @@ class AutomationHandlerSkill(MycroftSkill):
     def handle_no_offer_choice_intent(self, message):
         self.manager.not_automate_habit(self.habit_id)
         self.habit_not_automatized()
+        # self.generate_settingsmeta()
 
     @intent_handler(IntentBuilder("TriggerCommandIntent")
                     .require("IndexKeyword")
@@ -308,6 +337,7 @@ class AutomationHandlerSkill(MycroftSkill):
             self.remove_context("TriggerCommandContext")
             self.manager.not_automate_habit(self.habit_id)
             self.habit_not_automatized()
+            # self.generate_settingsmeta()
         else:
             intent_id = int(intent_id) - 1
             if self.manager.automate_habit(
@@ -317,6 +347,7 @@ class AutomationHandlerSkill(MycroftSkill):
                     self.habit_automatized()
                 else:
                     self.habit_offer(intent_id)
+                # self.generate_settingsmeta()
             else:
                 self.speak("This command is already a trigger for another "
                            "habit. Please choose an other one.")
@@ -332,7 +363,7 @@ class AutomationHandlerSkill(MycroftSkill):
                  "{} commands?".format(len(intents)))
         return dial
 
-    def generate_time_trigger_dialog(self, time, intents):
+    def generate_time_trigger_dialog(self, time, days, intents):
         dial = ""
         if len(intents) > 1:
             for i in range(0, len(intents) - 1):
@@ -343,7 +374,12 @@ class AutomationHandlerSkill(MycroftSkill):
         else:
             dial += "the command {} ".format(intents[0]["last_utterance"])
             com = "this command"
-        at = "at {}".format(time)
+        at = "at {} on ".format(time)
+        for d in days[:-1]:
+            at += "{}, ".format(WEEKDAYS[d])
+        if len(days) > 1:
+            at += "and "
+        at += "{}".format(WEEKDAYS[days[-1]])
         dial += ("{}. Do you want me to automate your habit of launching {} "
                  "{}?".format(at, com, at))
         return dial
@@ -385,12 +421,15 @@ class AutomationHandlerSkill(MycroftSkill):
 # region Habit Automation
 
     def handle_trigger_detected(self, message):
+        if not self.check_skills_intallation():
+            return
+
         self.manager.load_files()
-        LOGGER.debug("Loading trigger number " + message.data.get("Number"))
+        LOGGER.info("Loading trigger number " + message.data.get("Number"))
         self.trigger = self.manager.get_trigger_by_id(int(
             message.data.get("Number")))
         self.habit = self.manager.get_habit_by_id(self.trigger["habit_id"])
-        LOGGER.debug("Habit number " + str(self.trigger["habit_id"]))
+        LOGGER.info("Habit number " + str(self.trigger["habit_id"]))
 
         if self.habit["automatized"] == 1:
             for intent in self.habit["intents"]:
@@ -457,7 +496,7 @@ class AutomationHandlerSkill(MycroftSkill):
         self.speak(dialog + "?", expect_response=True)
 
     def exec_automation(self):
-        LOGGER.debug("Launching habit...")
+        LOGGER.info("Launching habit...")
         for intent in self.to_execute:
             self.emitter.emit(
                 Message("recognizer_loop:utterance",
@@ -497,6 +536,250 @@ class AutomationHandlerSkill(MycroftSkill):
                 "last_utterance": "open firefox"
             }
         ], "prout", ["monday"])
+
+# endregion
+
+# region Dependent skills installation
+
+    def check_skills_intallation(self):
+        LOGGER.info("Checking for skills install...")
+        ret = True
+        for folder, skill in SKILLS_FOLDERS.iteritems():
+            if not os.path.isdir(folder):
+                ret = False
+                self.to_install += [skill]
+
+        if not ret:
+            self.set_context("InstallMissingContext")
+            dial = "To use this skill, you also have to install the skill"
+            num_skill = "this skill"
+            skills_list = ""
+            for skill in self.to_install[:-1]:
+                skills_list += skill + ", "
+            if len(self.to_install) > 1:
+                num_skill = "these {} skills".format(len(self.to_install))
+                skills_list += "and "
+                dial += "s"
+            skills_list += self.to_install[-1]
+            self.speak(dial + " " + skills_list +
+                       ". Should I install {} for you?".format(num_skill),
+                       expect_response=True)
+        return ret
+
+    @intent_handler(IntentBuilder("InstallMissingIntent")
+                    .require("YesKeyword")
+                    .require("InstallMissingContext").build())
+    @removes_context("InstallMissingContext")
+    def handle_install_missing(self):
+        for skill in self.to_install:
+            self.emitter.emit(
+                Message("recognizer_loop:utterance",
+                        {"utterances": ["install " + skill],
+                         "lang": 'en-us'}))
+
+    @intent_handler(IntentBuilder("NotInstallMissingIntent")
+                    .require("NoKeyword")
+                    .require("InstallMissingContext").build())
+    @removes_context("InstallMissingContext")
+    def handle_not_install_missing(self):
+        pass
+
+# endregion
+
+# region Habit config on home.mycroft.ai
+
+    """ In developpement
+    def generate_settingsmeta(self):
+        skill_dir = os.path.dirname(__file__)
+        settingsmeta_file = "settingsmeta.json"
+        settings_file = "settings.json"
+        settings_path = os.path.join(skill_dir, settings_file)
+        settingsmeta_path = os.path.join(skill_dir, settingsmeta_file)
+
+        settingsmeta = json.load(open(settingsmeta_path))
+
+        set_sections = settingsmeta["skillMetadata"]["sections"]
+
+        commands = "["
+        for intent in self.habit["intents"][:-1]:
+            commands += "\"" + intent["last_utterance"] + "\", "
+        commands += "\"" + self.habit["intents"][-1]["last_utterance"] + "\"]"
+
+        if self.habit["trigger_type"] == "skill":
+            set_sections += [
+                {
+                    "name": "Habit {}".format(self.habit_id),
+                    "fields": [
+                        {
+                            "name": "habit_{}_commands".format(self.habit_id),
+                            "type": "text",
+                            "label": "Commands",
+                            "value": commands
+                        },
+                        {
+                            "name": "habit_{}_auto".format(self.habit_id),
+                            "type": "number",
+                            "label": "Auto",
+                            "value": str(self.habit["automatized"])
+                        }
+                    ]
+                }
+            ]
+
+        else:
+            set_sections += [
+                {
+                    "name": "Habit {}".format(self.habit_id),
+                    "fields": [
+                        {
+                            "name": "habit_{}_commands".format(self.habit_id),
+                            "type": "text",
+                            "label": "Commands",
+                            "value": commands
+                        },
+                        {
+                            "name": "habit_{}_auto".format(self.habit_id),
+                            "type": "number",
+                            "label": "Auto",
+                            "value": str(self.habit["automatized"])
+                        },
+                        {
+                            "name": "habit_{}_time".format(self.habit_id),
+                            "type": "text",
+                            "label": "Time",
+                            "value": self.habit["time"]
+                        },
+                        {
+                            "name": "habit_{}_days".format(self.habit_id),
+                            "type": "text",
+                            "label": "Days",
+                            "value": str(self.habit["days"])
+                        }
+                    ]
+                }
+            ]
+
+            self.settings["habit_{}_time".format(self.habit_id)] = ""
+            self.settings["habit_{}_days".format(self.habit_id)] = ""
+
+        self.settings["habit_{}_commands".format(self.habit_id)] = ""
+        self.settings["habit_{}_auto".format(self.habit_id)] = ""
+
+        settingsmeta["skillMetadata"]["sections"] = set_sections
+
+        with open(settings_path, 'w') as set_file:
+            json.dump(self.settings, set_file)
+
+        s = SkillSettings('./settings.json', 'HabitsSettings')
+        s.initialize_remote_settings()
+
+    @intent_handler(IntentBuilder("NewEmptyHabitIntent")
+                    .require("NewEmptyHabitKeyword"))
+    @adds_context("EmptyHabitTypeContext")
+    def handle_create_empty_habit(self, message):
+        self.speak("Do you want to create a time or a skill based habit?",
+                   expect_response=True)
+
+    @intent_handler(IntentBuilder("NewEmptySkillHabitIntent")
+                    .require("SkillKeyword")
+                    .require("EmptyHabitTypeContext").build())
+    @removes_context("EmptyHabitTypeContext")
+    def handle_create_empty_skill_habit(self):
+        skill_dir = os.path.dirname(__file__)
+        settings_file = "settingsmeta.json"
+        settings_path = os.path.join(skill_dir, settings_file)
+
+        self.manager.load_files()
+        h_index = len(self.manager.habits)
+
+        settingsmeta = json.load(open(settings_path))
+
+        set_sections = settingsmeta["skillMetadata"]["sections"]
+
+        set_sections += [
+            {
+                "name": "Habit {}".format(h_index),
+                "fields": [
+                    {
+                        "name": "habit_{}_commands".format(h_index),
+                        "type": "text",
+                        "label": "Commands",
+                        "value": "[]"
+                    },
+                    {
+                        "name": "habit_{}_auto".format(h_index),
+                        "type": "number",
+                        "label": "Auto",
+                        "value": "0"
+                    }
+                ]
+            }
+        ]
+
+        settingsmeta["skillMetadata"]["sections"] = set_sections
+
+        with open(settings_path, 'w') as meta_file:
+            json.dump(settingsmeta, meta_file)
+
+        s = SkillSettings('./settings.json', 'HabitsSettings')
+        s.initialize_remote_settings()
+
+    @intent_handler(IntentBuilder("NewEmptyTimeHabitIntent")
+                    .require("TimeKeyword")
+                    .require("EmptyHabitTypeContext").build())
+    @removes_context("EmptyHabitTypeContext")
+    def handle_create_empty_time_habit(self):
+        skill_dir = os.path.dirname(__file__)
+        settings_file = "settingsmeta.json"
+        settings_path = os.path.join(skill_dir, settings_file)
+
+        self.manager.load_files()
+        h_index = len(self.manager.habits)
+
+        settingsmeta = json.load(open(settings_path))
+
+        set_sections = settingsmeta["skillMetadata"]["sections"]
+
+        set_sections += [
+            {
+                "name": "Habit {}".format(h_index),
+                "fields": [
+                    {
+                        "name": "habit_{}_commands".format(h_index),
+                        "type": "text",
+                        "label": "Commands",
+                        "value": ""
+                    },
+                    {
+                        "name": "habit_{}_auto".format(h_index),
+                        "type": "number",
+                        "label": "Auto",
+                        "value": "0"
+                    },
+                    {
+                        "name": "habit_{}_time".format(h_index),
+                        "type": "text",
+                        "label": "Time",
+                        "value": ""
+                    },
+                    {
+                        "name": "habit_{}_days".format(h_index),
+                        "type": "text",
+                        "label": "Days",
+                        "value": "[]"
+                    }
+                ]
+            }
+        ]
+
+        settingsmeta["skillMetadata"]["sections"] = set_sections
+
+        with open(settings_path, 'w') as meta_file:
+            json.dump(settingsmeta, meta_file)
+
+        s = SkillSettings('./settings.json', 'HabitsSettings')
+        s.save_skill_settings(settingsmeta)
+        """
 
 # endregion
 
