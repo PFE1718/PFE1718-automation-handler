@@ -43,9 +43,9 @@ WEEKDAYS = [
 ]
 
 SKILLS_FOLDERS = {
-    "/opt/mycroft/skills/mycroft-skill-listener": "skill listener",
-    "/opt/mycroft/skills/mycroft-habit-miner-skill": "habit miner",
-    "/opt/mycroft/skills/mycroft-automation-handler": "automation handler"
+    "/opt/mycroft/skills/PFE1718-skill-listener": "skill listener",
+    "/opt/mycroft/skills/PFE1718-habit-miner-skill": "habit miner",
+    "/opt/mycroft/skills/PFE1718-automation-handler": "automation handler"
 }
 
 
@@ -214,6 +214,7 @@ class AutomationHandlerSkill(MycroftSkill):
         self.to_install = []
         self.auto = False
         self.manager = HabitsManager()
+        self.first_automation = True
 
     def initialize(self):
         habit_detected = IntentBuilder("HabitDetectedIntent").require(
@@ -405,14 +406,20 @@ class AutomationHandlerSkill(MycroftSkill):
         self.speak(dialog, expect_response=True)
 
     def habit_automatized(self):
-        self.speak("The habit has been successfully automatized. You can "
-                   "change your habit automation preferences by modifying the "
-                   "file /opt/mycroft/habits/habits dot json.")
+        dial = "The habit has been successfully automatized."
+        if self.first_automation:
+            dial += (" You can change your preferences by modifying the "
+                     "file /opt/mycroft/habits/habits dot json.")
+            self.first_automation = False
+        self.speak(dial)
 
     def habit_not_automatized(self):
-        self.speak("The habit will not be automatized. You can change your "
-                   "habit automation preferences by modifying the file "
-                   "/opt/mycroft/habits/habits dot json.")
+        dial = "The habit will not be automatized."
+        if self.first_automation:
+            dial += (" You can change your preferences by modifying the "
+                     "file /opt/mycroft/habits/habits dot json.")
+            self.first_automation = False
+        self.speak(dial)
 
     def habit_offer(self, intent_id=None):
         if self.habit["trigger_type"] == "time":
@@ -420,9 +427,11 @@ class AutomationHandlerSkill(MycroftSkill):
         else:
             dial = "Every time you will launch the command {}, ".format(
                 self.habit["intents"][intent_id]["last_utterance"])
-        dial += ("I will ask you if you want to launch the habit. You can "
-                 "change your habit automation preferences by modifying the "
-                 "file /opt/mycroft/habits/habits dot json.")
+        dial += ("I will ask you if you want to launch the habit.")
+        if self.first_automation:
+            dial += (" You can change your preferences by modifying the "
+                     "file /opt/mycroft/habits/habits dot json.")
+            self.first_automation = False
         self.speak(dial)
 
 # endregion
