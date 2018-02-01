@@ -542,7 +542,8 @@ class AutomationHandlerSkill(MycroftSkill):
 
         if not ret:
             self.set_context("InstallMissingContext")
-            dial = "To use the skill automation handler, you also have to install the skill"
+            dial = ("To use the skill automation handler, you also have to "
+                    "install the skill")
             num_skill = "this skill"
             skills_list = ""
             for skill in self.to_install[:-1]:
@@ -567,12 +568,14 @@ class AutomationHandlerSkill(MycroftSkill):
                 Message("recognizer_loop:utterance",
                         {"utterances": ["install " + skill],
                          "lang": 'en-us'}))
+        self.to_install = []
 
     @intent_handler(IntentBuilder("NotInstallMissingIntent")
                     .require("NoKeyword")
                     .require("InstallMissingContext").build())
     @removes_context("InstallMissingContext")
     def handle_not_install_missing(self):
+        self.to_install = []
         pass
 
 # endregion
