@@ -59,10 +59,10 @@ class HabitsManager(object):
     """
 
     def __init__(self):
-        self.habits_file_path = ("/opt/mycroft/skills/PFE1718-skill-listener"
-                                 "/habits/habits.json")
-        self.triggers_file_path = ("/opt/mycroft/skills/PFE1718-skill-listener"
-                                   "/habits/triggers.json")
+        self.habits_file_path = os.path.expanduser(
+            "~/.mycroft/skills/ListenerSkill/habits/habits.json")
+        self.triggers_file_path = os.path.expanduser(
+            "~/.mycroft/skills/ListenerSkill/habits/triggers.json")
 
     def load_files(self):
         self.habits = json.load(open(self.habits_file_path))
@@ -536,6 +536,8 @@ class AutomationHandlerSkill(MycroftSkill):
     def check_skills_intallation(self):
         LOGGER.info("Checking for skills install...")
         ret = True
+        self.to_install = []
+
         for folder, skill in SKILLS_FOLDERS.iteritems():
             if not os.path.isdir(folder):
                 ret = False
@@ -565,18 +567,17 @@ class AutomationHandlerSkill(MycroftSkill):
     @removes_context("InstallMissingContext")
     def handle_install_missing(self):
         for skill in self.to_install:
+            LOGGER.info("Installing " + skill)
             self.emitter.emit(
                 Message("recognizer_loop:utterance",
                         {"utterances": ["install " + skill],
                          "lang": 'en-us'}))
-        self.to_install = []
 
     @intent_handler(IntentBuilder("NotInstallMissingIntent")
                     .require("NoKeyword")
                     .require("InstallMissingContext").build())
     @removes_context("InstallMissingContext")
     def handle_not_install_missing(self):
-        self.to_install = []
         pass
 
 # endregion
