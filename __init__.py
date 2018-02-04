@@ -59,9 +59,10 @@ class HabitsManager(object):
     """
 
     def __init__(self):
-        self.habits_file_path = "/opt/mycroft/habits/habits.json"
-        self.triggers_file_path = "/opt/mycroft/habits/triggers.json"
-        self.load_files()
+        self.habits_file_path = ("/opt/mycroft/skills/PFE1718-skill-listener"
+                                 "/habits/habits.json")
+        self.triggers_file_path = ("/opt/mycroft/skills/PFE1718-skill-listener"
+                                   "/habits/triggers.json")
 
     def load_files(self):
         self.habits = json.load(open(self.habits_file_path))
