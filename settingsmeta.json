@@ -1,0 +1,16 @@
+{
+    "name": "Habits",
+    "skillMetadata": {
+        "sections": [
+            {
+                "name": "Manage your habits",
+                "fields": [
+                    {
+                        "type": "label",
+                        "label": "Here you can modify the parameters of your habits.<br/>See <a href=\"https://github.com/PFE1718/mycroft-habits-automation#readme\">the project page</a> for more information."
+                    }
+                ]
+            }
+        ]
+    }
+}
