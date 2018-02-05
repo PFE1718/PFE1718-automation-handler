@@ -426,8 +426,8 @@ class AutomationHandlerSkill(MycroftSkill):
         self.generate_settingsmeta()
         dial = "The habit has been successfully automatized."
         if self.first_automation:
-            dial += (" You can change your preferences by modifying the "
-                     "file /opt/mycroft/habits/habits dot json.")
+            dial += (" You can change your preferences on home dot "
+                     "mycroft dot ai")
             self.first_automation = False
         self.speak(dial)
 
@@ -435,12 +435,13 @@ class AutomationHandlerSkill(MycroftSkill):
         self.generate_settingsmeta()
         dial = "The habit will not be automatized."
         if self.first_automation:
-            dial += (" You can change your preferences by modifying the "
-                     "file /opt/mycroft/habits/habits dot json.")
+            dial += (" You can change your preferences on home dot "
+                     "mycroft dot ai")
             self.first_automation = False
         self.speak(dial)
 
     def habit_offer(self, intent_id=None):
+        self.generate_settingsmeta()
         if self.habit["trigger_type"] == "time":
             dial = "Every day at {}, ".format(self.habit["time"])
         else:
@@ -448,8 +449,8 @@ class AutomationHandlerSkill(MycroftSkill):
                 self.habit["intents"][intent_id]["last_utterance"])
         dial += ("I will ask you if you want to launch the habit.")
         if self.first_automation:
-            dial += (" You can change your preferences by modifying the "
-                     "file /opt/mycroft/habits/habits dot json.")
+            dial += (" You can change your preferences on home dot "
+                     "mycroft dot ai")
             self.first_automation = False
         self.speak(dial)
 
