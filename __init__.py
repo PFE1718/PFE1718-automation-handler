@@ -839,6 +839,20 @@ class AutomationHandlerSkill(MycroftSkill):
                             event_name)
                     hab["automatized"] = int(
                         self.settings[habit_name + "auto"])
+                    if not hab["detected"]:
+                        intents = []
+                        for command in json.loads(
+                                str(self.settings[habit_name + "commands"])
+                                .replace("'", "\"")):
+                            intents += [
+                                {
+                                    "last_utterance": command,
+                                    "parameters": {},
+                                    "name": ""
+                                }
+                            ]
+                        hab["intents"] = intents
+
                 else:
                     if hab["detected"]:
                         hab["automatized"] = self.settings[habit_name + "auto"]
