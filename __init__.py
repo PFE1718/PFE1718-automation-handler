@@ -852,6 +852,7 @@ class AutomationHandlerSkill(MycroftSkill):
                                 }
                             ]
                         hab["intents"] = intents
+                        hab["user_choice"] = True
 
                 else:
                     if hab["detected"]:
