@@ -572,7 +572,7 @@ class AutomationHandlerSkill(MycroftSkill):
     def handle_modify_habit(self):
         self.speak("Modifying habit {}. Say 0 to not automate, 1 to automate "
                    "entirely and 2 to automate the offer.".format(
-                       self.list_index))
+                       self.list_index), expect_response=True)
 
     @intent_handler(IntentBuilder("ExitListIntent")
                     .require("ExitKeyword")
@@ -629,7 +629,7 @@ class AutomationHandlerSkill(MycroftSkill):
 
         dial = "Habit {}. Commands: {}. {} Status: {}.".format(
             self.list_index, commands, optional, stat)
-        self.speak(dial)
+        self.speak(dial, expect_response=True)
 
 # endregion
 
