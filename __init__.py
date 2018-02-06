@@ -110,6 +110,10 @@ class HabitsManager(object):
         with open(self.habits_file_path, 'w') as habits_file:
             json.dump(self.habits, habits_file)
 
+    def save_habits(self):
+        with open(self.habits_file_path, 'w') as habits_file:
+            json.dump(self.habits, habits_file)
+
     def automate_habit(self, habit_id, auto, new_triggers=None):
         """
         Register the automation of a habit in the habits.json
@@ -528,6 +532,104 @@ class AutomationHandlerSkill(MycroftSkill):
         self.habit_id = message.data.get("Number")
         self.cancel_scheduled_event(
             "habit_automation_nb_{}".format(self.habit_id))
+
+# endregion
+
+# region Habit modification
+
+    @intent_handler(IntentBuilder("ListHabitsIntent")
+                    .require("ListHabitsKeyword"))
+    @adds_context("ListContext")
+    def handle_list_habits(self):
+        self.habits_list = []
+        self.list_index = -1
+        self.manager.load_files()
+
+        i = 0
+        for habit in self.manager.habits:
+            if habit["user_choice"]:
+                self.habits_list += [(i, habit)]
+            i += 1
+
+        self.speak("Listing habits one by one. After each habit, "
+                   "you can modify it by saying modify, move to the next habit"
+                   " by saying next habit, or stop the listing by saying "
+                   "exit.")
+
+        self.speak_next_habit()
+
+    @intent_handler(IntentBuilder("NextHabitIntent")
+                    .require("NextHabitKeyword")
+                    .require("ListContext").build())
+    def handle_next_habit(self):
+        self.speak_next_habit()
+
+    @intent_handler(IntentBuilder("ModifyHabitIntent")
+                    .require("ModifyKeyword")
+                    .require("ListContext").build())
+    @adds_context("ModifyContext")
+    @removes_context("ListContext")
+    def handle_modify_habit(self):
+        self.speak("Modifying habit {}. Say 0 to not automate, 1 to automate "
+                   "entirely and 2 to automate the offer.".format(
+                       self.list_index))
+
+    @intent_handler(IntentBuilder("ExitListIntent")
+                    .require("ExitKeyword")
+                    .require("ListContext").build())
+    @removes_context("ListContext")
+    def handle_exit_list(self):
+        self.speak("Stopping habits' list.")
+
+    @intent_handler(IntentBuilder("ModifChoiceIntent")
+                    .require("IndexAutoKeyword")
+                    .require("ModifyContext").build())
+    @adds_context("ListContext")
+    @removes_context("ModifyContext")
+    def handle_modif_choice(self, message):
+        auto = int(message.data.get("IndexAutoKeyword"))
+        index, _ = self.habits_list[self.list_index]
+        self.manager.habits[index]["automatized"] = auto
+        self.manager.save_habits()
+
+        self.speak("Modification saved.")
+        self.speak_next_habit()
+
+    def speak_next_habit(self):
+        self.list_index += 1
+
+        if self.list_index == len(self.habits_list):
+            self.remove_context("ListContext")
+            self.speak("Habits' list finished.")
+            return
+
+        commands = ""
+        _, hab = self.habits_list[self.list_index]
+        if len(hab["intents"]) > 1:
+            for intent in hab["intents"][:-1]:
+                commands += "{}, ".format(intent["last_utterance"])
+            commands += "and {}".format(hab["intents"][-1]["last_utterance"])
+        else:
+            commands += hab["intents"][0]["last_utterance"]
+        stat = "automatized"
+        if not hab["automatized"]:
+            stat = "not " + stat
+        elif hab["automatized"] == 2:
+            stat = "offer " + stat
+
+        optional = ""
+        if hab["trigger_type"] == "time":
+            optional += "Time: {} on ".format(hab["time"])
+            for day in hab["days"]:
+                optional += WEEKDAYS[day]
+        else:
+            trig = hab["intents"][hab["triggers"][0]]["last_utterance"]
+            optional += "Trigger: {}".format(trig)
+        optional += "."
+
+        dial = "Habit {}. Commands: {}. {} Status: {}.".format(
+            self.list_index, commands, optional, stat)
+        self.speak(dial)
 
 # endregion
 
