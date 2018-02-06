@@ -414,7 +414,7 @@ class AutomationHandlerSkill(MycroftSkill):
         dial = "The habit has been successfully automatized."
         if self.first_automation:
             dial += (" You can change your preferences by saying "
-                     "'list habits'")
+                     "'list my habits'")
             self.first_automation = False
         self.speak(dial)
 
@@ -422,7 +422,7 @@ class AutomationHandlerSkill(MycroftSkill):
         dial = "The habit will not be automatized."
         if self.first_automation:
             dial += (" You can change your preferences by saying "
-                     "'list habits'")
+                     "'list my habits'")
             self.first_automation = False
         self.speak(dial)
 
@@ -435,7 +435,7 @@ class AutomationHandlerSkill(MycroftSkill):
         dial += ("I will ask you if you want to launch the habit.")
         if self.first_automation:
             dial += (" You can change your preferences by saying "
-                     "'list habits'")
+                     "'list my habits'")
             self.first_automation = False
         self.speak(dial)
 
