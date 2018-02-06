@@ -413,16 +413,16 @@ class AutomationHandlerSkill(MycroftSkill):
     def habit_automatized(self):
         dial = "The habit has been successfully automatized."
         if self.first_automation:
-            dial += (" You can change your preferences by modifying the "
-                     "file /opt/mycroft/habits/habits dot json.")
+            dial += (" You can change your preferences by saying "
+                     "'list habits'")
             self.first_automation = False
         self.speak(dial)
 
     def habit_not_automatized(self):
         dial = "The habit will not be automatized."
         if self.first_automation:
-            dial += (" You can change your preferences by modifying the "
-                     "file /opt/mycroft/habits/habits dot json.")
+            dial += (" You can change your preferences by saying "
+                     "'list habits'")
             self.first_automation = False
         self.speak(dial)
 
@@ -434,8 +434,8 @@ class AutomationHandlerSkill(MycroftSkill):
                 self.habit["intents"][intent_id]["last_utterance"])
         dial += ("I will ask you if you want to launch the habit.")
         if self.first_automation:
-            dial += (" You can change your preferences by modifying the "
-                     "file /opt/mycroft/habits/habits dot json.")
+            dial += (" You can change your preferences by saying "
+                     "'list habits'")
             self.first_automation = False
         self.speak(dial)
 
